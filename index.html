@@ -166,31 +166,19 @@
       html2canvas(preview, {
         backgroundColor: null,
         useCORS: true,
-        scale: 2 // 提高分辨率
+        scale: 2
       }).then(canvas => {
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new window.jspdf.jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const pdfWidth = 210; // A4宽度mm
+        // 计算图片等比缩放后的高度（mm）
         const imgProps = {
           width: canvas.width,
           height: canvas.height
         };
-        const imgWidth = pdfWidth;
         const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-        let position = 0;
-        let pageHeightLeft = imgHeight;
-
-        // 多页处理
-        while (pageHeightLeft > 0) {
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          pageHeightLeft -= pdfHeight;
-          if (pageHeightLeft > 0) {
-            pdf.addPage();
-            position = -imgHeight + pageHeightLeft;
-          }
-        }
+        // 创建自适应高度的PDF
+        const pdf = new window.jspdf.jsPDF('p', 'mm', [pdfWidth, imgHeight]);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, imgHeight);
         pdf.save('萝卜头转换器.pdf');
       });
     }
