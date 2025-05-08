@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML转PDF工具</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <title>HTML转PDF增强版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
@@ -69,7 +70,6 @@
             border-left: 4px solid #3498db;
         }
         
-        /* 加载动画 */
         .loading {
             display: none;
             text-align: center;
@@ -89,7 +89,6 @@
             100% { transform: rotate(360deg); }
         }
         
-        /* 状态消息 */
         .status-message {
             padding: 10px 15px;
             border-radius: 4px;
@@ -105,6 +104,17 @@
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
+        }
+        
+        /* 为PDF内容创建专用容器的样式 */
+        #pdf-content {
+            background: white;
+            padding: 20px;
+            width: 210mm; /* A4宽度 */
+            min-height: 200px;
+            box-sizing: border-box;
+            margin: 0 auto;
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
         }
         
         @media (max-width: 600px) {
@@ -125,9 +135,8 @@
 </head>
 <body>
     <div class="container">
-        <h1>HTML转PDF工具</h1>
+        <h1>HTML转PDF增强版</h1>
         
-        <!-- 状态消息 -->
         <div id="statusMessage" class="status-message"></div>
         
         <label for="htmlInput">请输入HTML代码：</label>
@@ -135,10 +144,10 @@
         
         <div class="buttons">
             <button onclick="preview()">预览</button>
-            <button onclick="convert()">转换为PDF</button>
+            <button onclick="generatePDF()">转换为PDF</button>
+            <button onclick="usePrintMethod()">备用方法转换</button>
         </div>
         
-        <!-- 加载动画 -->
         <div id="loading" class="loading">
             <div class="spinner"></div>
             <p>处理中，请稍候...</p>
@@ -147,14 +156,25 @@
         <h3>预览：</h3>
         <div id="preview" class="preview"></div>
         
+        <!-- 用于生成PDF的隐藏容器 -->
+        <div id="pdf-container" style="position: absolute; left: -9999px;">
+            <div id="pdf-content"></div>
+        </div>
+        
         <div class="instructions">
             <h3>使用说明：</h3>
             <ol>
                 <li>在文本框中粘贴您的HTML代码</li>
                 <li>点击"预览"按钮查看HTML渲染效果</li>
                 <li>点击"转换为PDF"按钮将HTML转换为PDF并下载</li>
+                <li>如果内容为空白，请尝试"备用方法转换"按钮</li>
             </ol>
-            <p><strong>注意：</strong> 本工具在本地运行，您的HTML内容不会上传到任何服务器。</p>
+            <p><strong>注意：</strong> 如果生成的PDF为空白，可以尝试：</p>
+            <ul>
+                <li>确保HTML代码中的图片使用完整URL路径</li>
+                <li>避免使用复杂的CSS布局，如flex或grid</li>
+                <li>尝试使用备用转换方法</li>
+            </ul>
         </div>
     </div>
 
@@ -166,7 +186,6 @@
             statusMessage.className = 'status-message ' + type;
             statusMessage.style.display = 'block';
             
-            // 5秒后自动隐藏
             setTimeout(() => {
                 statusMessage.style.display = 'none';
             }, 5000);
@@ -185,6 +204,10 @@
             
             try {
                 previewDiv.innerHTML = htmlInput;
+                
+                // 同时更新PDF内容容器
+                document.getElementById('pdf-content').innerHTML = htmlInput;
+                
                 showMessage('预览成功', 'success');
             } catch (error) {
                 console.error('预览失败:', error);
@@ -193,8 +216,8 @@
             }
         }
         
-        // 转换为PDF功能
-        function convert() {
+        // 转换为PDF的新方法，使用分段处理
+        function generatePDF() {
             const htmlInput = document.getElementById('htmlInput').value;
             
             if (!htmlInput.trim()) {
@@ -202,147 +225,168 @@
                 return;
             }
             
-            // 显示加载中动画
+            // 显示加载中
             document.getElementById('loading').style.display = 'block';
             
-            try {
-                // 创建一个临时容器
-                const container = document.createElement('div');
-                container.innerHTML = htmlInput;
-                
-                // 强制设置容器的大小，避免0宽高问题
-                container.style.width = '210mm';  // A4纸宽度
-                container.style.padding = '10mm';
-                container.style.visibility = 'hidden';
-                container.style.position = 'absolute';
-                container.style.left = '-9999px';
-                container.style.top = '0';
-                
-                // 将容器添加到文档中
-                document.body.appendChild(container);
-                
-                // 给页面中的所有图片添加加载完成事件
-                const images = container.querySelectorAll('img');
-                let imagesLoaded = 0;
-                const totalImages = images.length;
-                
-                // 如果没有图片，直接转换
+            // 确保PDF内容容器已经更新
+            document.getElementById('pdf-content').innerHTML = htmlInput;
+            
+            // 获取内容元素
+            const element = document.getElementById('pdf-content');
+            
+            // 给所有图片添加onload事件，确保它们加载完成
+            const images = element.querySelectorAll('img');
+            let loadedImages = 0;
+            const totalImages = images.length;
+            
+            // 设置最小延迟，确保DOM渲染
+            setTimeout(() => {
+                // 如果没有图片，直接开始转换
                 if (totalImages === 0) {
-                    generatePDF(container);
+                    startPDFConversion();
                     return;
                 }
                 
-                // 为所有图片添加加载事件
+                // 处理图片加载
                 images.forEach(img => {
-                    // 确保图片有宽高
+                    // 如果图片没有明确的尺寸，设置一个默认尺寸
                     if (!img.style.width) img.style.width = 'auto';
                     if (!img.style.height) img.style.height = 'auto';
                     
                     // 已加载的图片
                     if (img.complete) {
-                        imagesLoaded++;
-                        if (imagesLoaded === totalImages) {
-                            generatePDF(container);
+                        loadedImages++;
+                        if (loadedImages === totalImages) {
+                            startPDFConversion();
                         }
                     } else {
                         // 图片加载事件
                         img.onload = function() {
-                            imagesLoaded++;
-                            if (imagesLoaded === totalImages) {
-                                generatePDF(container);
+                            loadedImages++;
+                            if (loadedImages === totalImages) {
+                                startPDFConversion();
                             }
                         };
                         
                         // 图片加载失败事件
                         img.onerror = function() {
-                            imagesLoaded++;
-                            if (imagesLoaded === totalImages) {
-                                generatePDF(container);
+                            loadedImages++;
+                            console.warn('图片加载失败:', img.src);
+                            if (loadedImages === totalImages) {
+                                startPDFConversion();
                             }
                         };
                     }
                 });
                 
-                // 设置超时，防止图片加载太慢
+                // 设置超时，防止图片加载过久
                 setTimeout(() => {
-                    if (imagesLoaded < totalImages) {
-                        showMessage('某些图片加载超时，生成的PDF可能不完整', 'error');
-                        generatePDF(container);
+                    if (loadedImages < totalImages) {
+                        console.warn(`只有 ${loadedImages}/${totalImages} 张图片加载完成，但仍继续转换`);
+                        startPDFConversion();
                     }
-                }, 5000);
+                }, 3000);
+            }, 1000);
+            
+            // 开始PDF转换的函数
+            function startPDFConversion() {
+                const pdfContent = document.getElementById('pdf-content');
                 
-            } catch (error) {
-                console.error('准备转换失败:', error);
-                document.getElementById('loading').style.display = 'none';
-                showMessage('转换准备失败: ' + error.message, 'error');
+                try {
+                    // 使用html2canvas捕获内容
+                    html2canvas(pdfContent, {
+                        scale: 2,
+                        useCORS: true,
+                        allowTaint: true,
+                        logging: false,
+                        letterRendering: true
+                    }).then(canvas => {
+                        // 创建PDF
+                        const { jsPDF } = window.jspdf;
+                        const pdf = new jsPDF('p', 'mm', 'a4');
+                        
+                        // 添加图像到PDF
+                        const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                        const pdfWidth = pdf.internal.pageSize.getWidth();
+                        const pdfHeight = pdf.internal.pageSize.getHeight();
+                        const imgWidth = canvas.width;
+                        const imgHeight = canvas.height;
+                        const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                        const imgX = (pdfWidth - imgWidth * ratio) / 2;
+                        const imgY = 10;
+                        
+                        pdf.addImage(imgData, 'JPEG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+                        
+                        // 保存PDF
+                        pdf.save('converted-document.pdf');
+                        
+                        // 隐藏加载中
+                        document.getElementById('loading').style.display = 'none';
+                        showMessage('PDF生成成功！', 'success');
+                    }).catch(error => {
+                        console.error('转换失败:', error);
+                        document.getElementById('loading').style.display = 'none';
+                        showMessage('PDF生成失败: ' + error.message, 'error');
+                    });
+                } catch (error) {
+                    console.error('PDF处理失败:', error);
+                    document.getElementById('loading').style.display = 'none';
+                    showMessage('PDF处理失败: ' + error.message, 'error');
+                }
             }
         }
         
-        // 生成PDF的函数
-        function generatePDF(element) {
-            // 确保所有的canvas元素都有宽高
-            const canvases = element.querySelectorAll('canvas');
-            canvases.forEach(canvas => {
-                if (canvas.width === 0) canvas.width = 300;
-                if (canvas.height === 0) canvas.height = 150;
-            });
-            
-            // 等待一段时间，确保DOM完全渲染
-            setTimeout(() => {
-                const options = {
-                    margin: 10,
-                    filename: 'converted-document.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { 
-                        scale: 2,
-                        useCORS: true,
-                        logging: false,
-                        allowTaint: true
-                    },
-                    jsPDF: { 
-                        unit: 'mm', 
-                        format: 'a4', 
-                        orientation: 'portrait'
-                    }
-                };
-                
-                html2pdf().from(element).set(options).save()
-                    .then(() => {
-                        // 移除临时元素
-                        document.body.removeChild(element);
-                        document.getElementById('loading').style.display = 'none';
-                        showMessage('PDF生成成功！', 'success');
-                    })
-                    .catch(error => {
-                        console.error('PDF生成失败:', error);
-                        document.body.removeChild(element);
-                        document.getElementById('loading').style.display = 'none';
-                        showMessage('PDF生成失败: ' + error.message, 'error');
-                        
-                        // 如果还是失败，提供备用方案
-                        if (confirm('转换失败。是否尝试使用打印功能导出为PDF？')) {
-                            printToPDF();
-                        }
-                    });
-            }, 500);
-        }
-        
-        // 备用的打印为PDF方法
-        function printToPDF() {
+        // 备用方法 - 使用打印功能生成PDF
+        function usePrintMethod() {
             const htmlInput = document.getElementById('htmlInput').value;
             
-            // 创建一个新窗口用于打印
+            if (!htmlInput.trim()) {
+                showMessage('请先输入HTML代码！', 'error');
+                return;
+            }
+            
+            document.getElementById('loading').style.display = 'block';
+            showMessage('正在准备打印视图...', 'success');
+            
+            // 创建一个新窗口
             const printWindow = window.open('', '_blank');
-            printWindow.document.write(htmlInput);
+            
+            // 添加基本样式，确保打印效果良好
+            const printDocument = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>打印文档</title>
+                    <style>
+                        @page {
+                            margin: 1cm;
+                        }
+                        body {
+                            font-family: Arial, sans-serif;
+                            line-height: 1.5;
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${htmlInput}
+                </body>
+                </html>
+            `;
+            
+            printWindow.document.write(printDocument);
             printWindow.document.close();
             
-            // 等待页面加载完成后打印
+            // 等待内容加载完成后进行打印
             printWindow.onload = function() {
-                printWindow.focus();
+                document.getElementById('loading').style.display = 'none';
+                
+                // 短暂延迟确保内容渲染完成
                 setTimeout(() => {
+                    printWindow.focus();
                     printWindow.print();
-                    showMessage('请使用浏览器的"打印为PDF"功能完成转换', 'success');
-                }, 500);
+                    showMessage('请在打印对话框中选择"保存为PDF"', 'success');
+                }, 1000);
             };
         }
     </script>
